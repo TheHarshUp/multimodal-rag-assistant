@@ -1,23 +1,23 @@
-# PDF RAG Chatbot using ChromaDB and Groq LLM
+# Multimodal PDF RAG Assistant (Local LLM)
 
-## Live Demo
+A Retrieval-Augmented Generation (RAG) application that allows users to upload multiple PDF documents and ask questions using a locally hosted Large Language Model (LLM).
 
-[Try the App Here](https://pdf-rag-chatbot-2izdqetqvpmm5spepoc4qs.streamlit.app/)
-
-A cloud-deployed Retrieval-Augmented Generation (RAG) chatbot that allows users to upload PDF documents and ask questions based on the document content.
+This project uses vector embeddings and semantic search to retrieve relevant information from PDFs, then generates context-aware answers using a self-hosted Llama 3 model via LM Studio.
 
 ---
 
-## Features
+## Live Features
 
-* Upload PDF files
+* Upload multiple PDF documents simultaneously
 * Extract text from PDFs
-* Split text into semantic chunks
-* Generate vector embeddings
+* Split documents into chunks for retrieval
+* Generate semantic embeddings
 * Store embeddings in ChromaDB
-* Retrieve relevant chunks using similarity search
-* Generate context-aware answers using Groq LLM
-* Interactive chat interface using Streamlit
+* Retrieve top relevant chunks using similarity search
+* Generate context-aware answers using a local LLM
+* Display source citations for each answer
+* Interactive chat UI built with Streamlit
+* No cloud API dependency (fully local inference)
 
 ---
 
@@ -27,63 +27,82 @@ A cloud-deployed Retrieval-Augmented Generation (RAG) chatbot that allows users 
 * Streamlit
 * ChromaDB
 * Sentence Transformers
-* Groq API (Llama 3.3 70B)
+* LM Studio
+* Meta Llama 3 8B Instruct (GGUF)
 * PyPDF
 
 ---
 
 ## Project Workflow
 
-1. User uploads a PDF
+1. User uploads one or more PDF files
 2. PDF text is extracted
-3. Text is divided into chunks
+3. Text is split into chunks
 4. Embeddings are generated for each chunk
 5. Embeddings are stored in ChromaDB
 6. User asks a question
 7. Question embedding is generated
-8. Top relevant chunks are retrieved
-9. LLM generates an answer using retrieved context
+8. Similar chunks are retrieved
+9. Local LLM generates answer using retrieved context
+10. Source PDF citations are displayed
 
 ---
 
 ## Architecture
 
 ```bash
-PDF Upload
-    │
-    ▼
-PDF Parser (PyPDF)
-    │
-    ▼
-Text Chunking
-    │
-    ▼
-Embedding Model
-(Sentence Transformers)
-    │
-    ▼
-ChromaDB Vector Store
-    │
-    ▼
-Similarity Search
-    │
-    ▼
-Groq LLM
-(Llama 3.3 70B)
-    │
-    ▼
-Final Response
+User Uploads PDFs
+       |
+       v
++------------------+
+|   PDF Reader     |
++------------------+
+       |
+       v
++------------------+
+|    Chunking      |
++------------------+
+       |
+       v
++------------------+
+| Embedding Model  |
+| MiniLM-L6-v2     |
++------------------+
+       |
+       v
++------------------+
+|   ChromaDB       |
+| Vector Database  |
++------------------+
+       |
+       v
++------------------+
+| Similarity Search|
++------------------+
+       |
+       v
++------------------+
+| LM Studio Server |
+| Llama 3 8B LLM   |
++------------------+
+       |
+       v
+Answer + Source Citation
 ```
 
+---
 
 ## Project Structure
 
 ```bash
-pdf-rag-chatbot/
+rag-project/
 │
 ├── app.py
 ├── requirements.txt
 ├── README.md
+├── uploads/
+├── chroma_db/
+│
 └── utils/
     ├── chunker.py
     ├── embedder.py
@@ -94,9 +113,9 @@ pdf-rag-chatbot/
 
 ---
 
-## Setup & Installation
+## Installation
 
-Clone the repository:
+Clone repository:
 
 ```bash
 git clone https://github.com/TheHarshUp/pdf-rag-chatbot.git
@@ -109,13 +128,13 @@ Install dependencies:
 pip install -r requirements.txt
 ```
 
-Create environment variables:
+Run LM Studio local server and load model:
 
-```env
-GROQ_API_KEY=your_api_key_here
-```
+* Open LM Studio
+* Download Llama 3 8B Instruct GGUF
+* Start Local Server on port 1234
 
-Run the application:
+Run application:
 
 ```bash
 streamlit run app.py
@@ -123,25 +142,50 @@ streamlit run app.py
 
 ---
 
-## Challenges Solved
+## Key Improvements (V2)
 
-* Managing Streamlit session state for persistent chat history
-* Handling vector database reset when users upload new PDFs
-* Deploying a complete RAG pipeline on Streamlit Cloud
-* Migrating from local Ollama inference to cloud-based Groq API
+### Multi-PDF Retrieval
+
+Users can upload multiple PDFs and query across all documents.
+
+### Source Citations
+
+Every answer shows which document the information came from.
+
+### Local LLM Hosting
+
+Replaced Groq cloud inference with LM Studio local inference.
+
+Benefits:
+
+* No token cost
+* Better privacy
+* Offline capability
+* Demonstrates self-hosted AI deployment
 
 ---
 
-## Future Improvements
+## Challenges Solved
 
-* Multi-PDF support
-* Better UI/UX
-* Source citations for answers
+* Managing Streamlit session state
+* Resetting vector database for new uploads
+* Multi-document retrieval
+* Source tracking for answers
+* Migrating from Groq API to LM Studio local server
+
+---
+
+## Future Improvements (V3)
+
+* OCR support for scanned PDFs
+* Table extraction from PDFs
+* Graph and image understanding
+* Better semantic chunking
+* Hybrid search (keyword + vector search)
 * Chat history export
-* Conversation memory
 
 ---
 
 ## Demo Screenshot
 
-*(Will be added after UI improvements)*
+Will be added after final UI improvements.
