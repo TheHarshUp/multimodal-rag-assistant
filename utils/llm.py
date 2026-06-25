@@ -1,17 +1,20 @@
-from groq import Groq
-from dotenv import load_dotenv
-import streamlit as st
-load_dotenv()
+from openai import OpenAI
 
-client = Groq(api_key=st.secrets["GROQ_API_KEY"])
+client = OpenAI(
+    base_url="http://127.0.0.1:1234/v1",
+    api_key="lm-studio"
+)
 
 
 def ask_llm(question, context_chunks):
     context = "\n\n".join(context_chunks)
 
     prompt = f"""
-Use only the provided context to answer the question.
-If the answer is not in the context, say "I don't know."
+Answer using only the provided context.
+
+You may infer the answer from related context if needed.
+Give concise and clear answers.
+Only say "I don't know" if the context is completely unrelated.
 
 Context:
 {context}
@@ -23,13 +26,11 @@ Answer:
 """
 
     response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
+        model="meta-llama-3-8b-instruct",
         messages=[
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ]
+            {"role": "user", "content": prompt}
+        ],
+        temperature=0.2
     )
 
     return response.choices[0].message.content
