@@ -1,13 +1,13 @@
+import os
 import streamlit as st
 
-from utils.embedder import generate_embeddings
-from utils.vector_store import search, store_embeddings
-from utils.llm import ask_llm
 from utils.pdf_reader import read_pdf
-from utils.chunker import chunk_text
 from utils.table_parser import extract_tables
+from utils.chunker import chunk_text
+from utils.embedder import generate_embeddings
+from utils.vector_store import store_embeddings, search
+from utils.llm import ask_llm
 
-import os
 os.makedirs("uploads", exist_ok=True)
 
 st.set_page_config(
@@ -17,26 +17,15 @@ st.set_page_config(
 )
 
 st.markdown("""
-<style>
-section[data-testid="stSidebar"] {
-    width: 280px !important;
-}
-</style>
-""", unsafe_allow_html=True)
-
-st.markdown("""
 # 🤖 Multimodal RAG Assistant
 Ask questions across multiple PDFs with source citations
 """)
 
-st.markdown("""
-<style>
-.block-container {
-    padding-top: 2rem;
-    padding-bottom: 1rem;
-}
-</style>
-""", unsafe_allow_html=True)
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+if "processed_pdfs" not in st.session_state:
+    st.session_state.processed_pdfs = set()
 
 with st.sidebar:
     st.header("📂 Documents")
@@ -47,24 +36,14 @@ with st.sidebar:
         accept_multiple_files=True
     )
 
-    if "processed_pdfs" in st.session_state:
-        for pdf in st.session_state.processed_pdfs:
-            st.write(f"✅ {pdf}")
+    if uploaded_files:
+        st.markdown("### Uploaded Files")
+        for file in uploaded_files:
+            status = "✅ Indexed" if file.name in st.session_state.processed_pdfs else "⏳ Processing"
+            st.write(f"{status} — {file.name}")
 
     if st.button("🗑 Clear Chat"):
         st.session_state.messages = []
-        st.rerun()
-
-st.markdown("""
-<style>
-    section[data-testid="stSidebar"] {
-        width: 280px !important;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-if "messages" not in st.session_state:
-    st.session_state.messages = []
 
 if len(st.session_state.messages) == 0:
     st.info("""
@@ -76,59 +55,59 @@ Upload PDFs and ask:
 - Find tables / graphs
 """)
 
-if "processed_pdfs" not in st.session_state:
-    st.session_state.processed_pdfs = set()
-
+# -------- PDF PROCESSING --------
 if uploaded_files:
-    processed_any = False
-
     for uploaded_file in uploaded_files:
 
         if uploaded_file.name not in st.session_state.processed_pdfs:
-            processed_any = True
-
             file_path = f"uploads/{uploaded_file.name}"
 
             with open(file_path, "wb") as f:
                 f.write(uploaded_file.read())
 
-            with st.spinner(f"Processing {uploaded_file.name}..."):
+            text = read_pdf(file_path)
+            tables = []
 
-                text = read_pdf(file_path)
+            tables = []
 
-                # NEW: extract tables
+            if uploaded_file.size < 2_000_000:
                 tables = extract_tables(file_path)
+            else:
+                st.warning("Large PDF detected — skipping table extraction")
 
-                table_text = ""
-                for table_data in tables:
-                    page = table_data["page"]
-                    table = table_data["table"]
+            table_text = ""
 
-                    table_text += f"\nTable from Page {page}:\n"
+            for table_data in tables:
+                page = table_data["page"]
+                table = table_data["table"]
 
-                    for row in table:
-                        cleaned_row = [str(cell) if cell else "" for cell in row]
-                        table_text += " | ".join(cleaned_row) + "\n"
+                table_text += f"\nTable from Page {page}:\n"
 
-                combined_text = text + "\n" + table_text
+                for row in table:
+                    cleaned_row = [
+                        str(cell) if cell else ""
+                        for cell in row
+                    ]
+                    table_text += " | ".join(cleaned_row) + "\n"
 
-                chunks = chunk_text(combined_text)
-                embeddings = generate_embeddings(chunks)
+            combined_text = f"{text}\n{table_text}"
 
-                store_embeddings(chunks, embeddings, uploaded_file.name)
+            chunks = chunk_text(combined_text)
+            embeddings = generate_embeddings(chunks)
+
+            store_embeddings(chunks, embeddings, uploaded_file.name)
 
             st.session_state.processed_pdfs.add(uploaded_file.name)
+            st.rerun()
 
-    if processed_any:
-        st.toast("All PDFs indexed successfully! 🎉")
-
-
+# -------- CHAT HISTORY --------
 for message in st.session_state.messages:
     avatar = "🤖" if message["role"] == "assistant" else "🧑"
 
     with st.chat_message(message["role"], avatar=avatar):
         st.markdown(message["content"])
 
+# -------- QUESTION --------
 question = st.chat_input("Ask anything about your documents...")
 
 if question:
@@ -137,28 +116,27 @@ if question:
         "content": question
     })
 
-    question_embedding = generate_embeddings(question)
+    with st.spinner("Thinking..."):
+        question_embedding = generate_embeddings(question)
+        results, metadata = search(question_embedding, top_k=3)
+        answer = ask_llm(question, results)
 
-    results, metadata = search(question_embedding, top_k=3)
+        sources = list(set(
+            meta["source"]
+            for meta in metadata
+            if meta is not None and "source" in meta
+        ))
 
-    answer = ask_llm(question, results)
-
-    sources = list(set(
-        meta["source"]
-        for meta in metadata
-        if meta is not None and "source" in meta
-    ))
-
-    formatted_answer = f"""
+        formatted_answer = f"""
 {answer}
 
 ---
 📄 Sources: {", ".join(sources)}
 """
 
-    st.session_state.messages.append({
-        "role": "assistant",
-        "content": formatted_answer
-    })
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": formatted_answer
+        })
 
     st.rerun()

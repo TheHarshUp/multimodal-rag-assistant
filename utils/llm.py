@@ -12,9 +12,8 @@ def ask_llm(question, context_chunks):
     prompt = f"""
 Answer using only the provided context.
 
-You may infer the answer from related context if needed.
 Give concise and clear answers.
-Only say "I don't know" if the context is completely unrelated.
+If answer is not present, say "I don't know".
 
 Context:
 {context}
@@ -27,9 +26,10 @@ Answer:
 
     response = client.chat.completions.create(
         model="meta-llama-3-8b-instruct",
-        messages=[
-            {"role": "user", "content": prompt}
-        ],
+        messages=[{
+            "role": "user",
+            "content": prompt
+        }],
         temperature=0.2
     )
 
