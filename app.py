@@ -8,6 +8,8 @@ from utils.embedder import generate_embeddings
 from utils.vector_store import store_embeddings, search
 from utils.llm import ask_llm
 from utils.image_extractor import extract_images
+from utils.vision_llm import ask_vision
+import re
 
 os.makedirs("uploads", exist_ok=True)
 
@@ -23,6 +25,8 @@ if "messages" not in st.session_state:
 
 if "processed_pdfs" not in st.session_state:
     st.session_state.processed_pdfs = set()
+if "pdf_texts" not in st.session_state:
+    st.session_state.pdf_texts = {}
 
 if "tables" not in st.session_state:
     st.session_state.tables = {}
@@ -70,6 +74,7 @@ if uploaded_files:
                 f.write(uploaded_file.read())
 
             text = read_pdf(file_path)
+            st.session_state.pdf_texts[uploaded_file.name] = text
             image_paths = extract_images(file_path)
             st.session_state.images[uploaded_file.name] = image_paths
             st.write(f"Extracted {len(image_paths)} images")
@@ -102,6 +107,10 @@ for message in st.session_state.messages:
     avatar = "🤖" if message["role"] == "assistant" else "🧑"
 
     with st.chat_message(message["role"], avatar=avatar):
+
+        if "image" in message:
+            st.image(message["image"], width=400)
+
         st.markdown(message["content"])
 
         if message["content"] == "📊 Here are the extracted tables:":
@@ -132,22 +141,84 @@ if question:
         )
 
         st.rerun()
-    if "show image" in question.lower() or "show graph" in question.lower():
-        st.session_state.messages.append({
-            "role": "assistant",
-            "content": "🖼 Showing extracted images:"
-        })
+    question_lower = question.lower()
+
+    if (
+        "image" in question_lower
+        or "graph" in question_lower
+        or "chart" in question_lower
+        or "figure" in question_lower
+    ):
+        found = False
 
         for pdf_name, imgs in st.session_state.images.items():
-            st.write(f"Found {len(imgs)} images in {pdf_name}")
+            if len(imgs) > 0:
+                selected_image = imgs[0]
 
-            for img in imgs[:5]:
-                st.image(img, width=300)
+                match = re.search(r'page\s*(\d+)', question_lower)
 
-        st.stop()
+                if match:
+                    requested_page = match.group(1)
+
+                    for img in imgs:
+                        if f"page_{requested_page}_" in img:
+                            selected_image = img
+                            break
+                answer = ask_vision(selected_image, question)
+
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": f"🖼 Vision Analysis ({pdf_name}):\n\n{answer}",
+                    "image": selected_image
+                })
+
+                found = True
+                break
+
+        if not found:
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": "No extracted images found."
+            })
+
+        st.rerun()
+    question_lower = question.lower()
+
+    if (
+        "explain this pdf" in question_lower
+        or "summarize this pdf" in question_lower
+    ):
+        for pdf_name, pdf_text in st.session_state.pdf_texts.items():
+
+            summary_context = pdf_text[:20000]
+
+            summary_question = """
+    Summarize this PDF in simple language.
+
+    Include:
+    1. What this document is about
+    2. Main topics
+    3. Important findings / key points
+    """
+
+            summary = ask_llm(summary_question, [summary_context])
+
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": f"📄 PDF Summary ({pdf_name}):\n\n{summary}"
+            })
+
+            st.rerun()
+            st.stop()
     with st.spinner("Thinking..."):
         question_embedding = generate_embeddings(question)
-        results, metadata = search(question_embedding, top_k=3)
+        active_sources = list(st.session_state.processed_pdfs)
+
+        results, metadata = search(
+            question_embedding,
+            active_sources,
+            top_k=3
+        )
         answer = ask_llm(question, results)
 
         sources = list(

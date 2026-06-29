@@ -30,7 +30,7 @@ def store_embeddings(chunks, embeddings, pdf_name):
     )
 
 
-def search(query_embedding, top_k=3):
+def search(query_embedding, active_sources, top_k=3):
     collection = get_collection()
 
     results = collection.query(
@@ -39,7 +39,8 @@ def search(query_embedding, top_k=3):
             if hasattr(query_embedding, "tolist")
             else list(query_embedding)
         ],
-        n_results=top_k
+        n_results=top_k,
+        where={"source": {"$in": active_sources}}
     )
 
     return (
