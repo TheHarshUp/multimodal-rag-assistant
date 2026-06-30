@@ -10,6 +10,7 @@ from utils.llm import ask_llm
 from utils.image_extractor import extract_images
 from utils.vision_llm import ask_vision, classify_image
 import re
+from utils.ocr import extract_text_with_ocr
 
 os.makedirs("uploads", exist_ok=True)
 
@@ -51,6 +52,20 @@ with st.sidebar:
             )
             st.write(f"{status} — {file.name}")
 
+    # ADD HERE
+    st.markdown("---")
+
+    total_pdfs = len(st.session_state.processed_pdfs)
+    total_images = sum(len(imgs) for imgs in st.session_state.images.values())
+    total_tables = sum(len(tbls) for tbls in st.session_state.tables.values())
+
+    st.markdown("### 📊 Project Stats")
+    st.write(f"PDFs Loaded: {total_pdfs}")
+    st.write(f"Images: {total_images}")
+    st.write(f"Tables: {total_tables}")
+    st.write("Text LLM: Llama 3")
+    st.write("Vision: Qwen2.5 VL")
+
     if st.button("🗑 Clear Chat"):
         st.session_state.messages = []
 
@@ -73,7 +88,25 @@ if uploaded_files:
             with open(file_path, "wb") as f:
                 f.write(uploaded_file.read())
 
-            text = read_pdf(file_path)
+            try:
+                text = read_pdf(file_path)
+
+                ocr_pages = extract_text_with_ocr(file_path)
+
+                ocr_text = ""
+                for page_data in ocr_pages:
+                    page_num = page_data["page"]
+                    page_text = page_data["text"]
+
+                    if len(page_text.strip()) > 20:
+                        ocr_text += f"\n[PAGE {page_num}]\n{page_text}\n"
+
+                text = ocr_text if len(text.strip()) < 50 else text + "\n" + ocr_text
+
+            except Exception as e:
+                st.error(f"PDF processing failed: {e}")
+                continue
+
             st.session_state.pdf_texts[uploaded_file.name] = text
             image_paths = extract_images(file_path)
             st.session_state.images[uploaded_file.name] = image_paths
@@ -213,7 +246,10 @@ if question:
                 - Mention key values
                 """
 
-                answer = ask_vision(selected_image["path"], vision_prompt)
+                try:
+                    answer = ask_vision(selected_image["path"], vision_prompt)
+                except Exception as e:
+                    answer = f"Vision model error: {e}"
 
                 st.session_state.messages.append(
                     {
@@ -260,12 +296,75 @@ if question:
 
             st.rerun()
             st.stop()
-    with st.spinner("Thinking..."):
-        question_embedding = generate_embeddings(question)
-        active_sources = list(st.session_state.processed_pdfs)
+    match = re.search(r"page\s*(\d+)", question.lower())
+    if match:
+        requested_page = int(match.group(1))
 
-        results, metadata = search(question_embedding, active_sources, top_k=3)
-        answer = ask_llm(question, results)
+        for pdf_name, pdf_text in st.session_state.pdf_texts.items():
+            page_marker = f"[PAGE {requested_page}]"
+            start = pdf_text.find(page_marker)
+
+            if start != -1:
+                matches = list(re.finditer(r"\[PAGE \d+\]", pdf_text))
+
+                next_start = -1
+                for m in matches:
+                    if m.start() > start:
+                        next_start = m.start()
+                        break
+
+                if next_start == -1:
+                    page_text = pdf_text[start:]
+                else:
+                    page_text = pdf_text[start:next_start]
+
+                if "summarize" in question.lower():
+                    prompt = f"""
+            ONLY use this page.
+
+            Summarize this page in simple language.
+
+            {page_text}
+            """
+                else:
+                    prompt = f"""
+            ONLY answer using this page.
+
+            Page:
+            {page_text}
+
+            Question:
+            {question}
+            """
+
+                answer = ask_llm(prompt, [page_text])
+
+                st.session_state.messages.append(
+                    {
+                        "role": "assistant",
+                        "content": answer
+                    }
+                )
+
+                st.rerun()
+                st.stop()
+        
+    with st.spinner("Thinking..."):
+        try:
+            question_embedding = generate_embeddings(question)
+            active_sources = list(st.session_state.processed_pdfs)
+
+            results, metadata = search(question_embedding, active_sources, top_k=3)
+            answer = ask_llm(question, results)
+
+        except Exception as e:
+            st.session_state.messages.append(
+                {
+                    "role": "assistant",
+                    "content": f"LLM error: {e}"
+                }
+            )
+            st.rerun()
 
         sources = list(
             set(
